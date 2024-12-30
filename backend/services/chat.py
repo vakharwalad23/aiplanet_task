@@ -3,24 +3,27 @@ from sqlalchemy.orm import Session
 from models.document import Document
 from schemas.chat import Message, ChatRequest, ChatResponse
 from services.document import document_service
-from langchain.vectorstores import Chroma
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.chains.question_answering import load_qa_chain
-from langchain.memory import ConversationBufferMemory
-from langchain.llms import OpenAI
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import OpenAIEmbeddings
+from prompts.prompt import PDFChatPrompts
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_groq import ChatGroq
 
 class ChatService:
-    def __init__(self):
-        self.conversation_memories = {}
-    
-    def get_or_create_memory(self, document_id: str):
-        if document_id not in self.conversation_memories:
-            self.conversation_memories[document_id] = ConversationBufferMemory(
-                memory_key="chat_history",
-                return_messages=True
-            )
-        return self.conversation_memories[document_id]
-    
+    def create_chain(self, llm, prompt):
+        chain = (
+            {
+                "context": RunnablePassthrough(),
+                "chat_history": lambda x: x["chat_history"],
+                "question": RunnablePassthrough()
+            }
+            | prompt
+            | llm
+            | StrOutputParser()
+        )
+        return chain
+
     async def process_chat(self, db: Session, chat_request: ChatRequest) -> ChatResponse:
         document = await document_service.get_document(db, chat_request.document_id)
         
@@ -31,31 +34,30 @@ class ChatService:
             embedding_function=embeddings
         )
         
-        # Get conversation memory
-        memory = self.get_or_create_memory(chat_request.document_id)
-        
-        # Create QA chain
-        qa_chain = load_qa_chain(
-            OpenAI(temperature=0),
-            chain_type="stuff",
-            memory=memory
-        )
-        
-        # Get relevant documents
+         # Get vector store results
         docs = vectorstore.similarity_search(chat_request.message)
+        context = "\n".join([doc.page_content for doc in docs])
         
-        # Get answer
-        response = qa_chain.run(
-            input_documents=docs,
+        # Setup chat template with history
+        llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile")
+        template = PDFChatPrompts.get_chat_template()
+        
+        # Prepare inputs
+        inputs = PDFChatPrompts.get_context_with_history(
+            context=context,
+            chat_history=chat_request.chat_history,
             question=chat_request.message
         )
+        # Get response
+        chain = self.create_chain(llm=llm, prompt=template)
+        response = chain.invoke(inputs)
         
-        # Create messages
+        # Create and save messages
         ai_message = Message(role="ai", content=response)
         user_message = Message(role="user", content=chat_request.message)
-        
-        # Update chat history
         new_history = chat_request.chat_history + [user_message, ai_message]
+        
+        # Update document history
         document.chat_history = [msg.model_dump() for msg in new_history]
         db.commit()
         

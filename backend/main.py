@@ -7,6 +7,9 @@ from db.session import engine
 from datetime import datetime, timezone
 import time
 
+from dotenv import load_dotenv
+load_dotenv() ## Mini Guys Loads .env File
+
 start_time = time.time()
 
 # Create database tables
@@ -36,7 +39,7 @@ async def health_check():
 
 # Include routers
 app.include_router(document.router, prefix=f"{settings.API_V1_STR}/documents", tags=["documents"])
-# app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
+app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
 
 if __name__ == "__main__":
     import uvicorn

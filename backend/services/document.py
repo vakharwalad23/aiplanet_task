@@ -2,7 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from models.document import Document
 from services.minio import minio_service
-# from services.pdf import pdf_service
+from services.pdf import process_pdf, create_vector_store
 from typing import List, Optional
 import uuid
 
@@ -16,8 +16,8 @@ class DocumentService:
         await minio_service.upload_file(file_content, object_name)
         
         # Process PDF
-        # text = await pdf_service.extract_text(file_content)
-        # await pdf_service.create_vector_store(text, doc_id)
+        text = await process_pdf(file_content)
+        await create_vector_store(text, doc_id)
         
         # Create database entry
         db_document = Document(
