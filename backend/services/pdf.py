@@ -28,4 +28,4 @@ async def create_vector_store(text: str, doc_id: str) -> None:
             embeddings,
             persist_directory=f"vectorstore/{doc_id}"
         )
-    vectorstore.persist()
+    vectorstore.persist() ## Though is is not needed in newer versions of langchain-community but i used
